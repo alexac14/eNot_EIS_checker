@@ -7,7 +7,8 @@
 [Setup]
 AppId={{9B6E8A18-52F8-4D04-BD30-EB85E13B28B9}
 AppName=Проверки еНот
-AppVersion=0.1.2
+AppVersion=0.1.3
+VersionInfoVersion=0.1.3.0
 AppPublisher=Проверки еНот
 DefaultDirName={localappdata}\Programs\EnotChecks
 DefaultGroupName=Проверки еНот
@@ -17,7 +18,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir={#ReleaseDir}
-OutputBaseFilename=Setup_EnotChecks_0.1.2
+OutputBaseFilename=Setup_EnotChecks_0.1.3
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

@@ -31,4 +31,4 @@ subprocess.run([
 ], cwd=root, check=True)
 subprocess.run([str(args.iscc), '/DPackageDir='+str(out/'dist/EnotChecks'),
                 '/DReleaseDir='+str(out/'release'), str(root/'installer.iss')], check=True)
-print(out/'release/Setup_EnotChecks_0.1.2.exe')
+print(out/'release/Setup_EnotChecks_0.1.3.exe')

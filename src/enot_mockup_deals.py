@@ -12,6 +12,7 @@ from enot_mockup import (
     pointer_inside, fmt_date, Field, Segmented, KeyCard, PrimaryButton,
 )
 from enot_mockup_multi import Base, TableBoard, AddButton, tween, ellipsize, SafeDestroy
+from enot_app.windowing import CenteredToplevel
 
 AMBER, AMBER_SOFT = "#9A5B00", "#FFF1D6"
 GREY_T = "#566275"
@@ -90,7 +91,9 @@ class Toast(SafeDestroy, ctk.CTkLabel):
         self.configure(fg_color=lerp_color(BG, DARK, self.v), text_color=lerp_color(BG, "#FFFFFF", self.v))
 
 
-class NewDealDialog(SafeDestroy, ctk.CTkToplevel):
+class NewDealDialog(CenteredToplevel):
+    # Обход Windows-обработчика заголовка CTk, скрывающего окно через withdraw.
+    _deactivate_windows_window_header_manipulation = True
     def __init__(self, master, on_ok, with_people=None):
         super().__init__(master, fg_color=BG)
         self.title("Новая сделка")
@@ -116,7 +119,8 @@ class NewDealDialog(SafeDestroy, ctk.CTkToplevel):
         AddButton(row, "Отмена", self.destroy, width=110, height=48).pack(side="right", padx=(10, 0))
         self.name.entry.bind("<Return>", lambda e: self.date.entry.focus_set())
         self.date.entry.bind("<Return>", lambda e: self.ok())
-        self.after(150, lambda: (self.grab_set(), self.name.entry.focus_set()))
+        from enot_app.windowing import center_child
+        center_child(self,master,modal=True,on_show=self.name.entry.focus_set)
 
     def ok(self):
         title = self.name.get().strip()

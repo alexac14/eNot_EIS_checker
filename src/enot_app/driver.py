@@ -110,6 +110,7 @@ class WindowsDriver:
         self.main = self.scope = None
         self.expected = {}
         self.process_name = process_name
+        self.progress_visibility = lambda visible:None
     def prepare(self):
         import win32gui, win32process
         from pywinauto import Application
@@ -222,6 +223,8 @@ class WindowsDriver:
         return self.wait(attempt, 'Не найден элемент «'+text+'».') if wait else attempt()
 
     def click(self, text, kinds=None):
+        if self.scope is self.main and text in ('Добавить','Подписать'):
+            self.progress_visibility(False)
         self.guard()
         control = self.find(text, kinds, wait=False)
         if control is not None:
@@ -257,6 +260,77 @@ class WindowsDriver:
         self.wait(lambda: not self._dialogs(), 'Диалог еНот не закрылся. Проверьте сообщение в еНот.')
         self.scope = self.main
         self.main.set_focus()
+        self.progress_visibility(True)
+
+    def _signature_owned(self, hwnd, certificate_handle):
+        """Дополнительное окно должно принадлежать еНоту/окну выбора сертификата."""
+        import win32gui
+        seen = set()
+        owner = win32gui.GetWindow(hwnd, 4)
+        while owner and owner not in seen:
+            if owner in (self.main.handle, certificate_handle):
+                return True
+            seen.add(owner)
+            owner = win32gui.GetWindow(owner, 4)
+        return False
+
+    def _signature_popup(self, hwnd):
+        from pywinauto.controls.hwndwrapper import HwndWrapper
+        return HwndWrapper(hwnd)
+
+    def _signature_ready(self, window):
+        # Временный вариант до проверки реального окна: название неизвестно,
+        # ожидаются ОК/Отмена и уже установленный фокус на ОК. ПИН не заполняем.
+        controls = [c for c in window.descendants() if c.is_visible()]
+        if any('edit' in c.class_name().casefold() for c in controls):
+            raise AutomationError('Дополнительное окно подписания содержит поле ввода. Подтвердите его вручную; Enter не отправлен.')
+        buttons = [c for c in controls if 'button' in c.class_name().casefold()]
+        if not buttons:
+            return False
+        named = lambda c:norm(c.window_text().replace('&',''))
+        ok = [c for c in buttons if named(c) in ('ок','ok')]
+        cancel = [c for c in buttons if named(c) in ('отмена','cancel')]
+        if len(buttons)!=2 or len(ok)!=1 or len(cancel)!=1:
+            raise AutomationError('Неожиданное окно после выбора сертификата. Enter не отправлен; проверьте еНот.')
+        if not window.is_enabled() or not ok[0].is_enabled():
+            return False
+        focus = window.get_focus()
+        if focus is None or focus.handle==window.handle:
+            return False
+        if focus.handle!=ok[0].handle:
+            raise AutomationError('В дополнительном окне подписания фокус не на ОК. Enter не отправлен.')
+        return True
+
+    def confirm_signature(self, certificate_handle):
+        """После ОК сертификата — один Enter в дополнительном окне, без поиска заголовка."""
+        import win32gui
+        from pywinauto.keyboard import send_keys
+        # Короткая пауза прерывается аварийной остановкой. Если окно задержится,
+        # ждём его появления, а не отправляем Enter в главное окно/другую программу.
+        self.stop.event.wait(.05)
+        deadline = time.monotonic()+float(self.settings.get('timeout',45))
+        while time.monotonic()<deadline:
+            self.stop.check()
+            if not win32gui.IsWindow(self.main.handle):
+                raise AutomationError('Окно еНот закрылось перед подтверждением подписи.')
+            hwnd = win32gui.GetForegroundWindow()
+            if hwnd and hwnd not in (self.main.handle,certificate_handle):
+                if not self._signature_owned(hwnd,certificate_handle):
+                    raise AutomationError('Окно подтверждения подписи потеряло фокус. Enter не отправлен.')
+                window = self._signature_popup(hwnd)
+                if self._signature_ready(window):
+                    self.stop.check()
+                    if (win32gui.GetForegroundWindow()!=hwnd or
+                        not self._signature_owned(hwnd,certificate_handle) or
+                        not self._signature_ready(window)):
+                        raise AutomationError('Окно подтверждения подписи изменилось. Enter не отправлен.')
+                    self.scope = window
+                    send_keys('{ENTER}',pause=0)
+                    self.wait(lambda:not win32gui.IsWindow(hwnd) or not win32gui.IsWindowVisible(hwnd),
+                              'Дополнительное окно подписания не закрылось. Enter уже отправлен один раз; проверьте еНот.')
+                    return
+            self.stop.event.wait(.02)
+        raise AutomationError('Дополнительное окно подписания не появилось или не готово. Enter не отправлен; проверьте еНот.')
 
     def set_field(self, label, value):
         self.guard()
@@ -524,9 +598,11 @@ class WindowsDriver:
         control.select(index)
         if index not in control.selected_indices():
             raise AutomationError('Выбор сертификата не подтверждён.')
+        certificate_handle = self.scope.handle
         self.click('ОК', ('Button',))
+        self.confirm_signature(certificate_handle)
         self.main_again()
-        # ФИО, дата и тип проверяются повторно после подписания.
+        # ФИО, дата и тип проверяются повторно после обоих подтверждений подписи.
         def status_changed():
             current = self.records(person,kind)
             return len(current)==total_before and sum(confirmed(t) for t,c in current)==signed_before+1

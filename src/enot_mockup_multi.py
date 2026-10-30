@@ -120,6 +120,7 @@ def chain_fields(fields, on_change):
         a.entry.bind("<Return>", lambda e, b=b: b.entry.focus_set())
     for fld in fields:
         fld.entry.bind("<KeyRelease>", lambda e: on_change())
+        fld.entry.bind("<<FieldEdited>>", lambda e: on_change())
         fld.entry.bind("<FocusOut>", lambda e, fld=fld: fld.after(30, on_change))
 
 
@@ -804,7 +805,7 @@ class TableRow(SafeDestroy, ctk.CTkFrame, FieldsMixin):
         self.close.grid(row=0, column=6, sticky="w")
         for k, v in (values or {}).items():
             if v and k in self.fields:
-                self.fields[k].entry.insert(0, v)
+                self.fields[k].set(v)
         self.focus_v = 0.0
         self.comp = 0.0
         self.closable = 0.0

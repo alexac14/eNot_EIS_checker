@@ -177,6 +177,13 @@ class Field(ctk.CTkFrame):
                  live_format=None, on_blur_format=None, height=40):
         super().__init__(master, fg_color="transparent")
         self.live_format, self.on_blur_format = live_format, on_blur_format
+        # Проверяем до изменения Entry: форматирование по KeyRelease само по себе
+        # не ограничивает ввод и не покрывает вставку через контекстное меню.
+        self.input_rule = {
+            fmt_date: (8, 10, r"[0-9.]*"),
+            fmt_passport: (10, 12, r"[0-9 ]*"),
+            fmt_snils: (11, 14, r"[0-9 -]*"),
+        }.get(live_format)
         self.p = 0.0          # 0 — покой, 1 — наведение, 2 — фокус
         self.focused = False
         self.lbl = None
@@ -202,6 +209,54 @@ class Field(ctk.CTkFrame):
         self.entry.bind("<FocusIn>", self._focus_in)
         self.entry.bind("<FocusOut>", self._focus_out)
         self.entry.bind("<KeyRelease>", self._key_release)
+        if self.input_rule:
+            command = (self.register(self._validate_input), "%P", "%d")
+            self.entry.configure(validate="key", validatecommand=command)
+            self.entry.bind("<<Paste>>", self._paste)
+
+    def _fits_input(self, value):
+        if self.input_rule is None:
+            return True
+        count, width, allowed = self.input_rule
+        return (len(value) <= width and re.fullmatch(allowed, value) is not None
+                and sum("0" <= c <= "9" for c in value) <= count)
+
+    def _validate_input(self, proposed, action):
+        # Подсказка CTkEntry не является значением поля. Удаление разрешаем также
+        # для исправления некорректной строки, загруженной из старой сделки.
+        if self.entry._placeholder_text_active or action != "1":
+            return True
+        return self._fits_input(proposed)
+
+    def set(self, value):
+        """Загрузить сохранённое значение без обрезания; ошибки покажет валидация."""
+        validation = self.entry.cget("validate")
+        self.entry.configure(validate="none")
+        try:
+            self.entry.delete(0, "end")
+            self.entry.insert(0, value)
+        finally:
+            self.entry.configure(validate=validation)
+
+    def _paste(self, _):
+        try:
+            inserted = self.entry.clipboard_get().strip().replace("\u00a0", " ")
+        except tk.TclError:
+            return "break"
+        old = self.entry.get()
+        try:
+            start, end = self.entry.index("sel.first"), self.entry.index("sel.last")
+        except tk.TclError:
+            start = end = min(self.entry.index("insert"), len(old))
+        proposed = old[:start] + inserted + old[end:]
+        # Отклоняем всю вставку до удаления выделенного текста: номер документа
+        # не должен молча терять ни начало, ни лишние цифры в конце.
+        if self._fits_input(proposed):
+            self.set(proposed)
+            self.entry.icursor(start + len(inserted))
+            self._key_release(None)
+            self.entry._entry.event_generate("<<FieldEdited>>")
+        return "break"
 
     def get(self):
         return self.entry.get()
@@ -224,10 +279,24 @@ class Field(ctk.CTkFrame):
         if not self.live_format:
             return
         val = self.entry.get()
+        if not self._fits_input(val):
+            return
+        cursor = self.entry.index("insert")
+        digits_before = sum("0" <= c <= "9" for c in val[:cursor])
         new = self.live_format(val)
         if new != val:
-            self.entry.delete(0, "end")
-            self.entry.insert(0, new)
+            self.set(new)
+            if cursor == len(val):
+                target = len(new)
+            else:
+                target = 0
+                for i, char in enumerate(new):
+                    if "0" <= char <= "9":
+                        if not digits_before:
+                            break
+                        digits_before -= 1
+                        target = i + 1
+            self.entry.icursor(target)
 
     def _refresh(self):
         target = 2.0 if self.focused else (1.0 if pointer_inside(self.entry) else 0.0)

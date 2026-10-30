@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import queue
 import threading
+from .windowing import center_child, place_progress, native_handle, CenteredToplevel
 import tkinter as tk
 from tkinter import messagebox
 
@@ -21,6 +22,7 @@ from . import VERSION
 class ValidationField(Field):
     def __init__(self, *args, **kwargs):
         self.error = ''
+        self.touched = False
         super().__init__(*args, **kwargs)
 
     def _refresh(self):
@@ -30,25 +32,22 @@ class ValidationField(Field):
             super()._refresh()
 
     def set_error(self, error):
-        self.error = error
+        self.error = error if self.touched else ''
         job = self.__dict__.get('_anim_jobs', {}).pop('p', None)
         if job:
             self.after_cancel(job)
-        self.entry.configure(border_color='#CE3545' if error else BORDER_IDLE)
+        self.entry.configure(border_color='#CE3545' if self.error else BORDER_IDLE)
 
+
+    def _focus_out(self,event):
+        self.touched=True
+        super()._focus_out(event)
+        top=self.winfo_toplevel()
+        if hasattr(top,'check'):self.after_idle(top.check)
 
 def make_field(parent, key, compact=False):
     for k,label,ph,req,cap,live,blur in multi.SPEC:
         if k == key:
-            if live:
-                formatter = live
-                def live(value, formatter=formatter, key=key):
-                    import re
-                    allowed = r'[0-9.]*' if key in ('dob','issued') else (r'[0-9\s-]*' if key=='snils' else r'[0-9\s]*')
-                    limit = 11 if key=='snils' else (10 if key=='passport' else 8)
-                    if not re.fullmatch(allowed,value) or len(re.sub(r'\D','',value))>limit:
-                        return value
-                    return formatter(value)
             return ValidationField(parent, None if compact else label, ph, required=req,
                                    caption=None if compact else cap, live_format=live,
                                    on_blur_format=blur, height=38 if compact else 40)
@@ -100,7 +99,7 @@ class App(DealsSideApp):
         # Сервисные команды размещаются в отдельной строке над рабочей областью.
         tools.pack(fill='x', padx=32, pady=(0,8), before=self.winfo_children()[0])
         ctk.CTkLabel(tools,text='ТЕСТОВАЯ СБОРКА · только ЗАГС и брачные договоры',font=F(11,'bold'),text_color=MUTED).pack(side='left')
-        for text,command in [('Настройки',self.settings),('Диагностика',self.diagnose),('История',self.history),('Папка данных',lambda:os.startfile(self.repo.root))]:
+        for text,command in [('Настройки',self.settings),('Диагностика',self.diagnose),('История',self.history),('Папка данных',self.data_folder)]:
             ctk.CTkButton(tools,text=text,command=command,width=105,height=28,fg_color=TRACK,text_color=TEXT,font=F(12)).pack(side='right',padx=3)
         self.status = ctk.CTkLabel(self.go.master, text='',font=F(11),text_color='#BD283A',anchor='w',justify='left',wraplength=1000)
         self.status.pack(fill='x', before=self.go, pady=(5,0))
@@ -111,8 +110,9 @@ class App(DealsSideApp):
             button.bind('<ButtonRelease-1>',lambda e:self.after_idle(self.check),add=True)
         self.after(300,self.check)
         self.after(150,self.poll)
+        self.bind_all('<Button-1>',self._background_click,add='+')
         if self.repo.issues:
-            self.after(300,lambda:messagebox.showwarning('Не все сделки открыты','Есть повреждённые или недоступные файлы сделок. Они не изменены. Проверьте папку данных.'))
+            self.after(300,lambda:messagebox.showwarning('Не все сделки открыты','Есть повреждённые или недоступные файлы сделок. Они не изменены. Проверьте папку данных.',parent=self))
 
     def _chg(self):
         self.update_count(len(self.board.rows))
@@ -132,12 +132,39 @@ class App(DealsSideApp):
         for i,row in enumerate(self.board.rows):
             for key,field in row.fields.items():
                 field.set_error(result.errors.get((i,key),''))
-        errors = [f'Участник {i+1}: {text}' for (i,k),text in result.errors.items() if i>=0]
+        errors = [f'Участник {i+1}: {text}' for (i,k),text in result.errors.items() if i>=0 and self.board.rows[i].fields[k].touched]
         self.status.configure(text='\n'.join(errors[:2]) + ('\nЕсть другие ошибки ввода.' if len(errors)>2 else ''))
         # PrimaryButton — собственный виджет: заблокированы мышь, Enter и Space
         # одной проверкой в start(), а цвет отражает состояние готовности.
         self.go.label.configure(text_color=WHITE if not result.errors else '#CFD9F4')
         self.go.command = self.start if not result.errors else lambda:None
+
+    def _background_click(self,event):
+        widget=event.widget
+        try:
+            top=widget.winfo_toplevel()
+            node=widget
+            while node is not top:
+                if isinstance(node,(tk.Entry,tk.Text,tk.Button,ctk.CTkEntry,ctk.CTkTextbox,ctk.CTkButton,TextButton)):
+                    return
+                if hasattr(node,'command') or node.__class__.__name__ in ('NavItem','PrimaryButton','CloseMark'):
+                    return
+                node=node.master
+            top.focus_set()
+        except (tk.TclError,AttributeError):pass
+
+    def data_folder(self):
+        win=CenteredToplevel(self)
+        win.title('Папка данных')
+        win.geometry('700x210')
+        ctk.CTkLabel(win,text='Данные хранятся на этом компьютере:',font=F(15)).pack(pady=(25,10))
+        entry=ctk.CTkEntry(win,width=650,font=F(13))
+        entry.insert(0,str(self.repo.root))
+        entry.configure(state='readonly')
+        entry.pack(padx=20,fill='x')
+        ctk.CTkButton(win,text='Открыть в Проводнике',command=lambda:os.startfile(self.repo.root)).pack(pady=22)
+        center_child(win,self)
+        return win
 
     def save_current(self):
         self._save_job = None
@@ -181,7 +208,7 @@ class App(DealsSideApp):
             try:
                 dt.datetime.strptime(date,'%d.%m.%Y')
             except ValueError:
-                messagebox.showerror('Дата сделки','Укажите существующую дату дд.мм.гггг.')
+                messagebox.showerror('Дата сделки','Укажите существующую дату дд.мм.гггг.',parent=self)
                 return
         self.save_current()
         people = [r.values() for r in self.board.rows] if keep else [{}]
@@ -194,7 +221,7 @@ class App(DealsSideApp):
     def delete_deal(self):
         if not self.current or self.busy:
             return
-        if messagebox.askyesno('Удалить сделку','Удалить участников и всю историю этой сделки с диска? Это действие необратимо.'):
+        if messagebox.askyesno('Удалить сделку','Удалить участников и всю историю этой сделки с диска? Это действие необратимо.',parent=self):
             if self._save_job:
                 self.after_cancel(self._save_job)
                 self._save_job = None
@@ -208,7 +235,7 @@ class App(DealsSideApp):
     def history(self):
         self.save_current()
         runs = self.current.record.get('runs',[]) if self.current else ([self.session_run] if self.session_run else [])
-        win = ctk.CTkToplevel(self)
+        win = CenteredToplevel(self)
         win.title('История запусков')
         win.geometry('780x530')
         box = ctk.CTkTextbox(win,font=F(13),wrap='word')
@@ -220,13 +247,14 @@ class App(DealsSideApp):
             lines += ['']
         box.insert('1.0','\n'.join(lines) or 'Запусков пока нет.')
         box.configure(state='disabled')
+        center_child(win,self)
+        return win
 
     def settings(self):
-        win = ctk.CTkToplevel(self)
+        win = CenteredToplevel(self)
         win.title('Настройки подписи и хранения')
         win.geometry('640x425')
         win.transient(self)
-        win.grab_set()
         fields = {}
         for key,label in [('notary','ФИО нотариуса в сертификате'),('acting','ФИО ВРИО в сертификате')]:
             ctk.CTkLabel(win,text=label,font=F(14)).pack(anchor='w',padx=22,pady=(14,3))
@@ -239,13 +267,15 @@ class App(DealsSideApp):
         ctk.CTkLabel(win,text='Зашифрованные файлы привязаны к учётной записи Windows.\nПеренос на другой компьютер потребует отдельного экспорта.\nУже сохранённая история автоматически не перешифровывается.',font=F(12),justify='left').pack(anchor='w',padx=22)
         def save():
             if not all(e.get().strip() for e in fields.values()):
-                messagebox.showerror('Настройки','Заполните оба ФИО.')
+                messagebox.showerror('Настройки','Заполните оба ФИО.',parent=self)
                 return
             self.repo.settings.update({k:e.get().strip() for k,e in fields.items()})
             self.repo.settings['encrypt'] = encrypt.get()
             self.repo.save_settings()
             win.destroy()
         ctk.CTkButton(win,text='Сохранить настройки',command=save).pack(pady=20)
+        center_child(win,self,modal=True)
+        return win
 
     def diagnose(self):
         if self.busy:
@@ -273,13 +303,13 @@ class App(DealsSideApp):
         result = self.validation
         if result.errors:
             text = '\n'.join((f'Участник {i+1}: ' if i>=0 else '')+t for (i,k),t in result.errors.items())
-            messagebox.showerror('Проверьте данные',text)
+            messagebox.showerror('Проверьте данные',text,parent=self)
             return
         warnings = list(result.warnings)
         if self.current and any(r['status'] != 'completed' for r in self.current.record['runs']):
             warnings.append('Есть незавершённый запуск. Уже созданные запросы могут остаться в еНот. Проверьте их вручную перед новым запуском.')
         if warnings:
-            if not messagebox.askyesno('Предупреждения','\n\n'.join(warnings)+'\n\nПродолжить?',default='no'):
+            if not messagebox.askyesno('Предупреждения','\n\n'.join(warnings)+'\n\nПродолжить?',default='no',parent=self):
                 return
         self.save_current()
         deal = self.current.record if self.current else None
@@ -295,9 +325,13 @@ class App(DealsSideApp):
         self.overlay = ctk.CTkToplevel(self)
         self.overlay.title('Выполняются проверки еНот')
         self.overlay.attributes('-topmost',True)
-        self.overlay.geometry('680x145+30+20')
+        self.overlay.geometry('680x150')
+        self.overlay.update_idletasks()
+        import win32gui
+        self.overlay_rect=win32gui.GetWindowRect(native_handle(self))
+        place_progress(self.overlay,self.overlay_rect)
         self.overlay.resizable(False,False)
-        ctk.CTkLabel(self.overlay,text='Идёт проверка. Не трогайте мышь и клавиатуру.',font=F(17,'bold')).pack(padx=15,pady=(12,3))
+        ctk.CTkLabel(self.overlay,text='Идёт проверка. Не трогайте мышь и клавиатуру.',font=F(15,'bold')).pack(padx=15,pady=(12,3))
         self.progress_label = ctk.CTkLabel(self.overlay,text='Подготовка еНот…',font=F(13))
         self.progress_label.pack()
         ctk.CTkButton(self.overlay,text='Остановить · F8',command=self.stop.stop).pack(pady=8)
@@ -310,6 +344,15 @@ class App(DealsSideApp):
                 driver = WindowsDriver(self.repo.settings,self.stop)
                 # Сначала фокусируем еНот; затем начинаем следить за вмешательством.
                 driver.prepare()
+                rect=driver.main.rectangle()
+                self.overlay_rect=(rect.left,rect.top,rect.right,rect.bottom)
+                def visibility(visible):
+                    ack=threading.Event()
+                    self.messages.put(('overlay',(visible,ack)))
+                    if not ack.wait(5):self.stop.stop('Не удалось обновить окно прогресса.')
+                    self.stop.check()
+                driver.progress_visibility=visibility
+                visibility(True)
                 monitor.start()
                 driver.prepare = lambda:None
                 Runner(driver,lambda r:self.repo.save_run(deal,r),lambda s:self.messages.put(('progress',s))).execute(run,self.stop)
@@ -333,10 +376,14 @@ class App(DealsSideApp):
                 kind,payload = self.messages.get_nowait()
                 if kind == 'progress':
                     self.progress_label.configure(text=payload)
+                elif kind == 'overlay':
+                    visible,ack=payload
+                    try:place_progress(self.overlay,self.overlay_rect,visible)
+                    finally:ack.set()
                 elif kind == 'diagnostic':
                     self.busy = False
                     self.deiconify()
-                    messagebox.showinfo('Диагностика',payload)
+                    messagebox.showinfo('Диагностика',payload,parent=self)
                 elif kind == 'done':
                     self.overlay.destroy()
                     self.busy = False
@@ -351,7 +398,7 @@ class App(DealsSideApp):
                             p = payload['people'][step['person']-1]
                             self.seen.add(((p['fio'].casefold(),p['dob']),dt.date.today().isoformat()))
                     text = payload['note']+'\n\n'+'\n'.join(step_text(s) for s in payload['steps'])
-                    messagebox.showinfo('Итог двух этапов еНот',text)
+                    messagebox.showinfo('Итог двух этапов еНот',text,parent=self)
                     if not self.current:
                         self.board.load([{}])
                         self.quick_people = [{}]
@@ -367,6 +414,7 @@ class App(DealsSideApp):
             self._choice_state = choice
             self.check()
         self.after(150,self.poll)
+        self.bind_all('<Button-1>',self._background_click,add='+')
 
     def close(self):
         if self.busy:
@@ -379,4 +427,4 @@ class App(DealsSideApp):
 
     def report_callback_exception(self, exc, value, tb):
         # Не сохраняем traceback с данными контролов еНот.
-        messagebox.showerror('Ошибка приложения','Операция не завершена. Проверьте доступ к папке данных. Персональные данные в технический журнал не записываются.')
+        messagebox.showerror('Ошибка приложения','Операция не завершена. Проверьте доступ к папке данных. Персональные данные в технический журнал не записываются.',parent=self)
