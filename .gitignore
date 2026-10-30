@@ -1,0 +1,33 @@
+# Локальные данные пользователей
+Данные/
+Сделки/
+Учебные данные/
+participants.json
+deal.json
+training-state.xml
+settings.json
+diagnostics.json
+.env
+.env.*
+*.pfx
+*.p12
+*.pem
+*.key
+
+# Среда, кеш и результаты сборки
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+release/
+*.spec
+*.exe
+*.dll
+*.log
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini
