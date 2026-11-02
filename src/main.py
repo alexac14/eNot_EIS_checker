@@ -1,4 +1,3 @@
-"""Рабочая сборка. Сетевые операции Python блокируются до загрузки приложения."""
 import sys
 sys.coinit_flags = 2
 from enot_app.privacy import install

@@ -1,8 +1,3 @@
-"""Адаптер еНот: чтение Win32/UIA, локальный OCR, проверка каждого изменения.
-
-Никаких координат из скриншотов, сетевых OCR, файлов снимков или буфера обмена.
-При неоднозначном поиске действия прекращаются. Проверяется на рабочем еНот.
-"""
 import collections
 import datetime as dt
 import os
@@ -29,7 +24,7 @@ def confirmed(text):
 
 def model_path():
     import win32api
-    # Tesseract использует fopen: короткий путь нужен для установки в кириллице.
+
     return win32api.GetShortPathName(str(Path(__file__).parent/'models'))
 
 
@@ -57,7 +52,7 @@ class LocalOCR:
                     result.append((text, (a+r.left, b+r.top, c+r.left, d+r.top)))
         self.api.Clear()
         picture.close()
-        # В левом меню подпись одного раздела может занимать 2–3 строки.
+
         singles = list(result)
         for text, box in singles:
             chain, current, used = text, box, {box}
@@ -111,7 +106,7 @@ class WindowsDriver:
         self.expected = {}
         self.process_name = process_name
         self.progress_visibility = lambda visible:None
-    def prepare(self):
+    def prepare(self, inspect_only=False):
         import win32gui, win32process
         from pywinauto import Application
         candidates = []
@@ -146,6 +141,9 @@ class WindowsDriver:
         for backend in ('win32', 'uia'):
             self.apps[backend] = Application(backend=backend).connect(process=self.pid)
         self.main = self.apps['win32'].window(handle=self.hwnd).wrapper_object()
+        self.scope = self.main
+        if inspect_only:
+            return
         if not self.main.is_enabled() or self._dialogs():
             raise AutomationError('Перед запуском закройте открытые диалоги еНот.')
         self.main.restore()
@@ -210,7 +208,7 @@ class WindowsDriver:
     def find(self, text, kinds=None, wait=True):
         def attempt():
             hits = [c for c in self.controls(kinds) if norm(c.window_text().replace('&', '')) == norm(text)]
-            # Один HWND/rectangle может быть представлен двумя backend.
+
             unique = {}
             for c in hits:
                 r = c.rectangle()
@@ -263,7 +261,6 @@ class WindowsDriver:
         self.progress_visibility(True)
 
     def _signature_owned(self, hwnd, certificate_handle):
-        """Дополнительное окно должно принадлежать еНоту/окну выбора сертификата."""
         import win32gui
         seen = set()
         owner = win32gui.GetWindow(hwnd, 4)
@@ -279,8 +276,6 @@ class WindowsDriver:
         return HwndWrapper(hwnd)
 
     def _signature_ready(self, window):
-        # Временный вариант до проверки реального окна: название неизвестно,
-        # ожидаются ОК/Отмена и уже установленный фокус на ОК. ПИН не заполняем.
         controls = [c for c in window.descendants() if c.is_visible()]
         if any('edit' in c.class_name().casefold() for c in controls):
             raise AutomationError('Дополнительное окно подписания содержит поле ввода. Подтвердите его вручную; Enter не отправлен.')
@@ -302,11 +297,10 @@ class WindowsDriver:
         return True
 
     def confirm_signature(self, certificate_handle):
-        """После ОК сертификата — один Enter в дополнительном окне, без поиска заголовка."""
         import win32gui
         from pywinauto.keyboard import send_keys
-        # Короткая пауза прерывается аварийной остановкой. Если окно задержится,
-        # ждём его появления, а не отправляем Enter в главное окно/другую программу.
+
+
         self.stop.event.wait(.05)
         deadline = time.monotonic()+float(self.settings.get('timeout',45))
         while time.monotonic()<deadline:
@@ -347,7 +341,7 @@ class WindowsDriver:
         options = {}
         for edit in self.controls(('Edit',)):
             r = edit.rectangle()
-            # Поле справа от подписи на той же строке, строго в текущем диалоге.
+
             if r.left >= c-3 and abs((r.top+r.bottom)/2-(b+d)/2) < max(20, (d-b)):
                 options[(r.left,r.top,r.right,r.bottom)] = edit
         if not options:
@@ -397,9 +391,6 @@ class WindowsDriver:
             raise AutomationError('Галочка расторжения брака не подтверждена.')
 
     def table_rows(self):
-        # Только строки доступной таблицы. OCR не используется для выбора записи
-        # на подписание: здесь нужна проверяемая привязка к реальной строке.
-        # У Win32 ListView индекс 0 соответствует самой новой записи сверху.
         tables = {}
         for table in self.controls(('ListView',)):
             if hasattr(table, 'item_count') and hasattr(table, 'get_item'):
@@ -440,8 +431,6 @@ class WindowsDriver:
         return [(text, row) for text, row in self.table_rows() if self.matches_record(text, person, kind)]
 
     def newest_requests_ready(self, person, kinds):
-        # В ЗАГС появляются две верхние строки, в брачных договорах — одна.
-        # Их взаимный порядок внутри одной даты не важен; данные и тип обязательны.
         newest = self.table_rows()[:len(kinds)]
         return len(newest) == len(kinds) and all(
             sum(self.matches_record(text, person, kind) and bool(re.search(r'не\s+подписан', norm(text)))
@@ -458,7 +447,6 @@ class WindowsDriver:
                 row.scroll_into_view()
 
     def _surface_ready(self, page):
-        """Кнопка от предыдущей вкладки сама по себе не означает готовность."""
         controls = self.controls()
         names = [norm(c.window_text().replace('&','')) for c in controls]
         title = norm(self.main.window_text())
@@ -476,17 +464,14 @@ class WindowsDriver:
         if page == 'zags':
             marker = 'запросы в загс' in title or any(re.match(r'^запросы в загс\s*\(',n) for n in names)
         else:
-            # Этот фильтр есть на вкладке поиска, но отсутствует на вкладке
-            # регистрации нотариальных действий того же раздела.
             marker = 'фио стороны брачного договора' in names
             if not marker and self.settings.get('ocr',True):
                 marker = any(norm(t)=='фио стороны брачного договора' for t,b in self.ocr.lines(self.main))
         buttons = [c for c in controls if norm(c.window_text().replace('&',''))=='добавить' and c.is_enabled()]
-        # Одно физическое место может быть представлено Win32 и UIA.
+
         return marker and len({rect_key(c) for c in buttons})==1
 
     def wait_ready(self, page):
-        """Сразу продолжаем после готовности нужного раздела, без минимальных пауз."""
         def ready():
             self.guard()
             return self._surface_ready(page)
@@ -526,9 +511,6 @@ class WindowsDriver:
         self.wait_ready('contracts')
 
     def finalize_dispatch(self):
-        # После последнего подтверждённого подписания мы уже вернулись
-        # из модального окна к главному окну еНот. Другие приложения и
-        # неожиданные диалоги не должны получать F5.
         self.stop.check()
         if self.scope.handle != self.main.handle or self._dialogs():
             raise AutomationError('Нельзя нажать F5: открыто другое окно или диалог еНот.')
@@ -602,7 +584,7 @@ class WindowsDriver:
         self.click('ОК', ('Button',))
         self.confirm_signature(certificate_handle)
         self.main_again()
-        # ФИО, дата и тип проверяются повторно после обоих подтверждений подписи.
+
         def status_changed():
             current = self.records(person,kind)
             return len(current)==total_before and sum(confirmed(t) for t,c in current)==signed_before+1
@@ -610,7 +592,6 @@ class WindowsDriver:
                   'Статус после подписания не подтверждён. Запрос мог быть подписан; проверьте еНот перед повтором.')
 
     def diagnose(self):
-        """Только структура контролов без значений полей, ФИО и снимков."""
         safe_names = {'Добавить','Подписать','Запросы в ЗАГС','Реестр нотариальных действий ЕИС','Поиск брачных договоров',
                       'Фамилия','Имя','Отчество','Дата рождения','Тип АГС','ОК','Отмена'}
         self.prepare()

@@ -16,6 +16,7 @@ from .domain import validate
 from .storage import Repository, data_directory, new_run, atomic
 from .engine import Runner, StopToken
 from .driver import WindowsDriver, InputMonitor
+from .eis_driver import EISDriver
 from . import VERSION
 
 
@@ -84,7 +85,7 @@ class App(DealsSideApp):
 
     def __init__(self):
         super().__init__()
-        self.title('Проверки еНот · проверочный билд '+VERSION)
+        self.title('Проверки еНот & ЕИС')
         try:
             self.iconbitmap(str(Path(__file__).parent/'app.ico'))
         except tk.TclError:
@@ -96,9 +97,10 @@ class App(DealsSideApp):
         self._center(width,height)
         self.protocol('WM_DELETE_WINDOW', self.close)
         tools = ctk.CTkFrame(self, fg_color=BG, height=30)
-        # Сервисные команды размещаются в отдельной строке над рабочей областью.
+
         tools.pack(fill='x', padx=32, pady=(0,8), before=self.winfo_children()[0])
-        ctk.CTkLabel(tools,text='ТЕСТОВАЯ СБОРКА · только ЗАГС и брачные договоры',font=F(11,'bold'),text_color=MUTED).pack(side='left')
+        ctk.CTkLabel(tools,text='Проверки еНот & ЕИС',font=F(12,'bold'),text_color=MUTED).pack(side='left')
+        ctk.CTkLabel(tools,text='Powered by Alexandr Andreev',font=F(11),text_color='#8C9AAF').pack(side='left',padx=18)
         for text,command in [('Настройки',self.settings),('Диагностика',self.diagnose),('История',self.history),('Папка данных',self.data_folder)]:
             ctk.CTkButton(tools,text=text,command=command,width=105,height=28,fg_color=TRACK,text_color=TEXT,font=F(12)).pack(side='right',padx=3)
         self.status = ctk.CTkLabel(self.go.master, text='',font=F(11),text_color='#BD283A',anchor='w',justify='left',wraplength=1000)
@@ -134,8 +136,8 @@ class App(DealsSideApp):
                 field.set_error(result.errors.get((i,key),''))
         errors = [f'Участник {i+1}: {text}' for (i,k),text in result.errors.items() if i>=0 and self.board.rows[i].fields[k].touched]
         self.status.configure(text='\n'.join(errors[:2]) + ('\nЕсть другие ошибки ввода.' if len(errors)>2 else ''))
-        # PrimaryButton — собственный виджет: заблокированы мышь, Enter и Space
-        # одной проверкой в start(), а цвет отражает состояние готовности.
+
+
         self.go.label.configure(text_color=WHITE if not result.errors else '#CFD9F4')
         self.go.command = self.start if not result.errors else lambda:None
 
@@ -252,7 +254,7 @@ class App(DealsSideApp):
 
     def settings(self):
         win = CenteredToplevel(self)
-        win.title('Настройки подписи и хранения')
+        win.title('Настройки подписи и хранения · '+VERSION)
         win.geometry('640x425')
         win.transient(self)
         fields = {}
@@ -285,12 +287,19 @@ class App(DealsSideApp):
             import pythoncom
             pythoncom.CoInitialize()
             try:
-                report = WindowsDriver(self.repo.settings,StopToken()).diagnose()
-                path = self.repo.root/'diagnostics.json'
-                atomic(path,report)
-                self.messages.put(('diagnostic','Структура элементов сохранена без значений полей и снимков:\n'+str(path)))
+                paths=[]
+                errors=[]
+                for name,cls in [('enot',WindowsDriver),('eis',EISDriver)]:
+                    try:
+                        report=cls(self.repo.settings,StopToken()).diagnose()
+                        path=self.repo.root/('diagnostics-'+name+'.json')
+                        atomic(path,report)
+                        paths.append(str(path))
+                    except Exception:
+                        errors.append('Не удалось прочитать '+('еНот' if name=='enot' else 'клиент ЕИС')+'. Проверьте запуск, закрытые диалоги и одинаковые права приложений.')
+                self.messages.put(('diagnostic','\n'.join(['Техническая структура без значений полей и снимков:',*paths,*errors])))
             except Exception:
-                self.messages.put(('diagnostic','Не удалось открыть одно окно eNot.exe. Запустите еНот; если он работает с повышенными правами, запустите и эту программу с теми же правами.'))
+                self.messages.put(('diagnostic','Не удалось сохранить диагностику. Проверьте доступ к папке данных.'))
             finally:
                 pythoncom.CoUninitialize()
         self.busy = True
@@ -323,7 +332,7 @@ class App(DealsSideApp):
         self.stop = StopToken()
         self.withdraw()
         self.overlay = ctk.CTkToplevel(self)
-        self.overlay.title('Выполняются проверки еНот')
+        self.overlay.title('Выполняются проверки еНот & ЕИС')
         self.overlay.attributes('-topmost',True)
         self.overlay.geometry('680x150')
         self.overlay.update_idletasks()
@@ -332,7 +341,7 @@ class App(DealsSideApp):
         place_progress(self.overlay,self.overlay_rect)
         self.overlay.resizable(False,False)
         ctk.CTkLabel(self.overlay,text='Идёт проверка. Не трогайте мышь и клавиатуру.',font=F(15,'bold')).pack(padx=15,pady=(12,3))
-        self.progress_label = ctk.CTkLabel(self.overlay,text='Подготовка еНот…',font=F(13))
+        self.progress_label = ctk.CTkLabel(self.overlay,text='Подготовка еНота и клиента ЕИС…',font=F(13))
         self.progress_label.pack()
         ctk.CTkButton(self.overlay,text='Остановить · F8',command=self.stop.stop).pack(pady=8)
         self.overlay.protocol('WM_DELETE_WINDOW',self.stop.stop)
@@ -342,7 +351,9 @@ class App(DealsSideApp):
             monitor = InputMonitor(self.stop)
             try:
                 driver = WindowsDriver(self.repo.settings,self.stop)
-                # Сначала фокусируем еНот; затем начинаем следить за вмешательством.
+                eis = EISDriver(self.repo.settings,self.stop)
+
+                eis.prepare()
                 driver.prepare()
                 rect=driver.main.rectangle()
                 self.overlay_rect=(rect.left,rect.top,rect.right,rect.bottom)
@@ -352,14 +363,21 @@ class App(DealsSideApp):
                     if not ack.wait(5):self.stop.stop('Не удалось обновить окно прогресса.')
                     self.stop.check()
                 driver.progress_visibility=visibility
+                def eis_visibility(visible):
+                    rect=eis.main.rectangle()
+                    self.overlay_rect=(rect.left,rect.top,rect.right,rect.bottom)
+                    visibility(visible)
+                eis.progress_visibility=eis_visibility
                 visibility(True)
                 monitor.start()
                 driver.prepare = lambda:None
-                Runner(driver,lambda r:self.repo.save_run(deal,r),lambda s:self.messages.put(('progress',s))).execute(run,self.stop)
-            except Exception:
+                eis.prepare = lambda:None
+                Runner(driver,lambda r:self.repo.save_run(deal,r),lambda s:self.messages.put(('progress',s)),eis_driver=eis).execute(run,self.stop)
+            except Exception as exc:
+                from .engine import AutomationError
                 run['status'] = 'failed'
                 run['note'] = ('Техническая ошибка или ошибка сохранения. Последний шаг мог выполниться. Проверьте еНот перед повтором.' if run['steps'] else
-                               'Не удалось подготовить еНот или контроль остановки. Запросы не начинались. Проверьте запуск еНот и права приложений.')
+                               str(exc) if isinstance(exc,AutomationError) else 'Не удалось подготовить еНот, клиент ЕИС или контроль остановки. Запросы не начинались. Проверьте запуск приложений и их права.')
                 try:
                     self.repo.save_run(deal,run)
                 except Exception:
@@ -397,14 +415,17 @@ class App(DealsSideApp):
                         if step['status'] in ('confirmed','uncertain') and 'создать' in step['code']:
                             p = payload['people'][step['person']-1]
                             self.seen.add(((p['fio'].casefold(),p['dob']),dt.date.today().isoformat()))
-                    text = payload['note']+'\n\n'+'\n'.join(step_text(s) for s in payload['steps'])
-                    messagebox.showinfo('Итог двух этапов еНот',text,parent=self)
+                    if payload['status']=='completed':
+                        messagebox.showinfo('Проверки завершены',payload['note'],parent=self)
+                    else:
+                        text = payload['note']+'\n\n'+'\n'.join(step_text(s) for s in payload['steps'])
+                        messagebox.showerror('Проверки не завершены',text,parent=self)
                     if not self.current:
                         self.board.load([{}])
                         self.quick_people = [{}]
                         self.session_run = None
                         payload['people'].clear()
-                    # Убираем копии паспортов из оперативной истории разового режима.
+
                     self.reset_key()
                     self.check()
         except queue.Empty:
@@ -414,7 +435,6 @@ class App(DealsSideApp):
             self._choice_state = choice
             self.check()
         self.after(150,self.poll)
-        self.bind_all('<Button-1>',self._background_click,add='+')
 
     def close(self):
         if self.busy:
@@ -426,5 +446,4 @@ class App(DealsSideApp):
         self.destroy()
 
     def report_callback_exception(self, exc, value, tb):
-        # Не сохраняем traceback с данными контролов еНот.
         messagebox.showerror('Ошибка приложения','Операция не завершена. Проверьте доступ к папке данных. Персональные данные в технический журнал не записываются.',parent=self)

@@ -1,16 +1,3 @@
-"""
-Макет главного экрана «Проверки еНот» (болванка без проверок).
-
-Что делает:
-  * можно вводить данные, поля сами ставят точки/пробелы/дефисы;
-  * плавные анимации при наведении и фокусе (поля, переключатель, кнопки);
-  * кнопка «Начать проверки» просто показывает введённые данные в окне.
-
-Ничего никуда не отправляется, программа работает полностью локально.
-
-Запуск:   pip install customtkinter==5.2.2 pillow
-          python enot_mockup.py
-"""
 import re
 import time
 import tkinter as tk
@@ -19,13 +6,13 @@ from tkinter import font as tkfont
 import customtkinter as ctk
 from PIL import Image, ImageDraw
 
-# ───────────────────────── палитра ─────────────────────────
-BG = "#F3F6FA"          # фон окна
+
+BG = "#F3F6FA"
 WHITE = "#FFFFFF"
-TEXT = "#18212F"        # основной текст
-MUTED = "#677386"       # подписи, мелкий текст
+TEXT = "#18212F"
+MUTED = "#677386"
 PLACEHOLDER = "#9AA5B5"
-ACCENT = "#2B5FD9"      # единственный акцентный цвет
+ACCENT = "#2B5FD9"
 ACCENT_HOVER = "#3C72EE"
 ACCENT_PRESS = "#1F49B0"
 ACCENT_SOFT = "#E7EEFF"
@@ -39,7 +26,6 @@ GREEN_SOFT = "#EDF8F2"
 WIN_W, WIN_H = 640, 560
 
 
-# ───────────────────────── утилиты анимации ─────────────────────────
 def _rgb(h):
     h = h.lstrip("#")
     return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
@@ -56,7 +42,6 @@ def ease_out(p):
 
 
 def animate(widget, key, duration, update, ease=ease_out):
-    """Запускает анимацию; новая анимация с тем же key отменяет предыдущую."""
     jobs = widget.__dict__.setdefault("_anim_jobs", {})
     if key in jobs:
         try:
@@ -73,7 +58,7 @@ def animate(widget, key, duration, update, ease=ease_out):
                 jobs[key] = widget.after(12, tick)
             else:
                 jobs.pop(key, None)
-        except tk.TclError:      # виджет уже удалён во время анимации
+        except tk.TclError:
             jobs.pop(key, None)
 
     tick()
@@ -108,7 +93,6 @@ def F(size, weight="normal"):
     return _font_cache[key]
 
 
-# ───────────────────────── иконки (рисуем сами) ─────────────────────────
 def make_icon(kind):
     S = 144
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
@@ -131,7 +115,6 @@ def make_icon(kind):
     return ctk.CTkImage(light_image=img, size=(36, 36))
 
 
-# ───────────────────────── форматирование ввода ─────────────────────────
 def digits(s):
     return re.sub(r"\D", "", s)
 
@@ -169,22 +152,19 @@ def fmt_fio(s):
     return " ".join(cap(w) for w in s.split())
 
 
-# ───────────────────────── поле ввода ─────────────────────────
 class Field(ctk.CTkFrame):
-    """Подпись + поле. Граница и подпись плавно меняют цвет при наведении и фокусе."""
-
     def __init__(self, master, label, placeholder, required=True, caption=None,
                  live_format=None, on_blur_format=None, height=40):
         super().__init__(master, fg_color="transparent")
         self.live_format, self.on_blur_format = live_format, on_blur_format
-        # Проверяем до изменения Entry: форматирование по KeyRelease само по себе
-        # не ограничивает ввод и не покрывает вставку через контекстное меню.
+
+
         self.input_rule = {
             fmt_date: (8, 10, r"[0-9.]*"),
             fmt_passport: (10, 12, r"[0-9 ]*"),
             fmt_snils: (11, 14, r"[0-9 -]*"),
         }.get(live_format)
-        self.p = 0.0          # 0 — покой, 1 — наведение, 2 — фокус
+        self.p = 0.0
         self.focused = False
         self.lbl = None
 
@@ -222,14 +202,11 @@ class Field(ctk.CTkFrame):
                 and sum("0" <= c <= "9" for c in value) <= count)
 
     def _validate_input(self, proposed, action):
-        # Подсказка CTkEntry не является значением поля. Удаление разрешаем также
-        # для исправления некорректной строки, загруженной из старой сделки.
         if self.entry._placeholder_text_active or action != "1":
             return True
         return self._fits_input(proposed)
 
     def set(self, value):
-        """Загрузить сохранённое значение без обрезания; ошибки покажет валидация."""
         validation = self.entry.cget("validate")
         self.entry.configure(validate="none")
         try:
@@ -249,8 +226,8 @@ class Field(ctk.CTkFrame):
         except tk.TclError:
             start = end = min(self.entry.index("insert"), len(old))
         proposed = old[:start] + inserted + old[end:]
-        # Отклоняем всю вставку до удаления выделенного текста: номер документа
-        # не должен молча терять ни начало, ни лишние цифры в конце.
+
+
         if self._fits_input(proposed):
             self.set(proposed)
             self.entry.icursor(start + len(inserted))
@@ -315,13 +292,12 @@ class Field(ctk.CTkFrame):
         animate(self, "p", 0.18, upd)
 
 
-# ───────────────────────── переключатель «Нотариус / ВРИО» ─────────────────────────
 class Segmented(ctk.CTkFrame):
     def __init__(self, master, label, options):
         super().__init__(master, fg_color="transparent")
         self.options = options
         self.value = None
-        self.sel = [0.0] * len(options)   # степень «выбрано» для каждой кнопки
+        self.sel = [0.0] * len(options)
         self.hov = [0.0] * len(options)
         self.has_focus = False
 
@@ -398,14 +374,13 @@ class Segmented(ctk.CTkFrame):
         self.btns[i].configure(fg_color=fg, text_color=tc)
 
 
-# ───────────────────────── карточка «Вставьте ключ» ─────────────────────────
 class KeyCard(ctk.CTkFrame):
     def __init__(self, master):
         super().__init__(master, fg_color=WHITE, corner_radius=12, border_width=2,
                          border_color=BORDER_IDLE, height=56)
         self.pack_propagate(False)
         self.confirmed = False
-        self.conf = 0.0      # 0 — не подтверждено, 1 — подтверждено
+        self.conf = 0.0
         self.hov = 0.0
         self.icon_key, self.icon_ok = make_icon("key"), make_icon("ok")
 
@@ -471,7 +446,7 @@ class KeyCard(ctk.CTkFrame):
         self.configure(fg_color=card_bg, border_color=border)
         self.icon.configure(fg_color=card_bg)
         self.text.configure(fg_color=card_bg)
-        # кнопка: белая с синим → при наведении светло-синяя → подтверждено: зелёная
+
         idle_fill = lerp_color(WHITE, ACCENT_SOFT, self.btn_hov)
         fill = lerp_color(idle_fill, GREEN, self.conf)
         bc = lerp_color(ACCENT, GREEN, self.conf)
@@ -479,7 +454,6 @@ class KeyCard(ctk.CTkFrame):
         self.btn.configure(fg_color=fill, border_color=bc, text_color=tc)
 
 
-# ───────────────────────── главная кнопка ─────────────────────────
 class PrimaryButton(ctk.CTkFrame):
     def __init__(self, master, text, command):
         super().__init__(master, fg_color=ACCENT, corner_radius=12, height=48, border_width=2,
@@ -545,7 +519,6 @@ class PrimaryButton(ctk.CTkFrame):
         self.arrow.configure(fg_color=c)
 
 
-# ───────────────────────── окно с результатом (для демонстрации) ─────────────────────────
 class ResultWindow(ctk.CTkToplevel):
     def __init__(self, master, rows):
         super().__init__(master, fg_color=BG)
@@ -568,7 +541,6 @@ class ResultWindow(ctk.CTkToplevel):
         self.after(50, self.lift)
 
 
-# ───────────────────────── приложение ─────────────────────────
 class App(ctk.CTk):
     def __init__(self):
         super().__init__(fg_color=BG)
@@ -613,7 +585,7 @@ class App(ctk.CTk):
             row=6, column=0, columnspan=2, sticky="w", pady=(0, 6))
         PrimaryButton(body, "Начать проверки", self.start).grid(row=7, column=0, columnspan=2, sticky="ew")
 
-        # Enter в поле — переход к следующему полю
+
         chain = [self.fio, self.dob, self.passport, self.issued, self.snils]
         for a, b in zip(chain, chain[1:]):
             a.entry.bind("<Return>", lambda e, b=b: b.entry.focus_set())
@@ -646,5 +618,3 @@ class App(ctk.CTk):
             ("Ключ вставлен", "да" if self.key.confirmed else "нет"),
         ]
         ResultWindow(self, rows)
-
-

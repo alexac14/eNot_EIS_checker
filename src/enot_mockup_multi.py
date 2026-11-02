@@ -1,16 +1,3 @@
-"""
-Варианты главного экрана для НЕСКОЛЬКИХ граждан (болванка без проверок).
-Исходный макет на одного человека остаётся в enot_mockup.py без изменений.
-
-Запуск:  python enot_mockup_multi.py 1     (1, 2, 3 или 4)
-
-  1 — Вкладки-«чипы»     окно 640×~560, размер не меняется
-  2 — Карточки-аккордеон окно 640 шириной, растёт по высоте при добавлении
-  3 — Боковая панель     окно шире (900), высота небольшая и постоянная
-  4 — Таблица            окно широкое (1100), растёт по высоте на строку
-
-Ничего никуда не отправляется, всё работает локально.
-"""
 import sys
 import tkinter as tk
 
@@ -26,13 +13,13 @@ from enot_mockup import (
 MAX_PERSONS = 4
 DOT_EMPTY = "#C3CCDA"
 
-# (ключ, подпись, подсказка, обязательное, мелкая подпись, формат при вводе, формат при уходе)
+
 SPEC = [
     ("fio", "Фамилия Имя Отчество", "Иванов Иван Иванович", True, None, None, fmt_fio),
     ("dob", "Дата рождения", "дд.мм.гггг", True, None, fmt_date, None),
     ("passport", "Серия и номер паспорта", "00 00 000000", True, None, fmt_passport, None),
     ("issued", "Дата выдачи паспорта", "дд.мм.гггг", True, None, fmt_date, None),
-    ("snils", "СНИЛС", "000-000-000 00", False, "Для запроса данных о дееспособности", fmt_snils, None),
+    ("snils", "СНИЛС", "000-000-000 00", False, "Без СНИЛС — пропуск дееспособности", fmt_snils, None),
 ]
 
 
@@ -69,7 +56,6 @@ def ellipsize(s, n):
 
 
 def tween(widget, attr, target, dur, paint):
-    """Плавно меняет число widget.<attr> до target и каждый кадр вызывает paint()."""
     start = getattr(widget, attr)
 
     def upd(e):
@@ -91,8 +77,6 @@ class FieldsMixin:
 
 
 class PersonForm(ctk.CTkFrame, FieldsMixin):
-    """Форма одного гражданина (5 полей), та же раскладка, что в исходном макете."""
-
     def __init__(self, master, on_change=None):
         super().__init__(master, fg_color="transparent")
         self.on_change = on_change
@@ -124,10 +108,7 @@ def chain_fields(fields, on_change):
         fld.entry.bind("<FocusOut>", lambda e, fld=fld: fld.after(30, on_change))
 
 
-# ───────────────────────── общие элементы ─────────────────────────
 class AddButton(ctk.CTkButton):
-    """Кнопка «+ Добавить» с плавной подсветкой."""
-
     def __init__(self, master, text, command, width=120, height=36):
         super().__init__(master, text=text, width=width, height=height, corner_radius=10,
                          font=F(13, "bold"), fg_color=BG, hover=False, border_width=2,
@@ -145,8 +126,6 @@ class AddButton(ctk.CTkButton):
 
 
 class CloseMark(ctk.CTkLabel):
-    """Крестик удаления: проявляется только когда это уместно."""
-
     def __init__(self, master, bg, command):
         super().__init__(master, text="×", font=F(18, "bold"), text_color=bg, fg_color=bg, width=22)
         self.vis = 0.0
@@ -212,7 +191,6 @@ class Base(ctk.CTk):
         self.geometry(f"{w}x{h}+{max(x, 0)}+{max(y, 0)}")
 
     def fit(self):
-        """Подгоняет высоту окна под содержимое (для вариантов, где окно растёт)."""
         self.update_idletasks()
         h = round(self.winfo_reqheight() / self.scale())
         self.geometry(f"{self.W}x{h}")
@@ -230,7 +208,6 @@ class Base(ctk.CTk):
         return row
 
     def note_for_all(self, who):
-        """Подпись «общий для всех граждан» у переключателя; проявляется при 2+ гражданах."""
         self.note = ctk.CTkLabel(who.head, text="общий для всех граждан", font=F(12), text_color=BG)
         self.note.pack(side="right")
         self.note_v = 0.0
@@ -257,7 +234,6 @@ class Base(ctk.CTk):
         MultiResult(self, blocks, shared)
 
 
-# ═════════════════════════ ВАРИАНТ 1: вкладки-чипы ═════════════════════════
 class Chip(ctk.CTkFrame):
     W = 138
 
@@ -331,7 +307,7 @@ class ChipsApp(Base):
         self.go = PrimaryButton(body, "Начать проверки", self.start)
         self.go.pack(fill="x", pady=(10, 0))
 
-        self.persons = []      # [{"form":..., "chip":...}]
+        self.persons = []
         self.active = None
         self.forms_getter = lambda: [p["form"] for p in self.persons]
         self.add_person(first=True)
@@ -402,7 +378,6 @@ class ChipsApp(Base):
         self.update_count(n)
 
 
-# ═════════════════════════ ВАРИАНТ 2: аккордеон ═════════════════════════
 class AccCard(ctk.CTkFrame, FieldsMixin):
     def __init__(self, master, app):
         super().__init__(master, fg_color=WHITE, corner_radius=12, border_width=2, border_color=BORDER_IDLE)
@@ -447,7 +422,7 @@ class AccCard(ctk.CTkFrame, FieldsMixin):
     def paint(self):
         border = lerp_color(lerp_color(BORDER_IDLE, BORDER_HOVER, self.hov), ACCENT, self.exp)
         self.configure(border_color=border)
-        # значок: синий когда раскрыто, зелёный когда заполнено, иначе бледный
+
         idle = lerp_color(ACCENT_SOFT, GREEN_SOFT, self.comp)
         idle_t = lerp_color(ACCENT, GREEN, self.comp)
         self.badge.configure(fg_color=lerp_color(idle, ACCENT, self.exp),
@@ -562,7 +537,6 @@ class AccordionApp(Base):
         self.update_count(n)
 
 
-# ═════════════════════════ ВАРИАНТ 3: боковая панель ═════════════════════════
 class SideRow(ctk.CTkFrame):
     def __init__(self, master, on_select, on_close):
         super().__init__(master, fg_color=WHITE, corner_radius=10, height=1, border_width=2, border_color=WHITE)
@@ -654,7 +628,7 @@ class SidebarApp(Base):
         self.key = KeyCard(bottom)
         self.key.pack(side="left", fill="x", expand=True, padx=(0, 14))
 
-        self.rows = []     # [{"form","row"}]
+        self.rows = []
         self.active_form = None
         self.forms_getter = lambda: [r["form"] for r in self.rows]
         self.add_person(first=True)
@@ -727,15 +701,13 @@ class SidebarApp(Base):
         self.update_count(n)
 
 
-# ═════════════════════════ ВАРИАНТ 4: таблица (с прокруткой) ═════════════════════════
 ROW_H = 44
-MAX_VISIBLE = 5                      # сколько строк видно без прокрутки
-COL_RATIO = [40, 300, 124, 182, 166, 168, 34]   # №, ФИО, дата рожд., паспорт, дата выдачи, СНИЛС, ×
+MAX_VISIBLE = 5
+COL_RATIO = [40, 300, 124, 182, 166, 168, 34]
 
 
 def make_cols(card_width):
-    """Ширины колонок так, чтобы таблица заполняла карточку (одинаково для шапки и строк)."""
-    total = card_width - 4 - 28 - 22           # рамка, внутренние отступы, полоса прокрутки
+    total = card_width - 4 - 28 - 22
     k = total / sum(COL_RATIO)
     cols = [round(r * k) for r in COL_RATIO]
     cols[1] += total - sum(cols)
@@ -743,19 +715,12 @@ def make_cols(card_width):
 
 
 def setup_cols(frame, cols):
-    # Tk grid.minsize измеряется в физических пикселях; размеры CTk —
-    # в логических. Без пересчёта при 125/150% заголовок и строки расходятся.
     scale = frame._get_widget_scaling()
     for i, w in enumerate(cols):
         frame.grid_columnconfigure(i, minsize=round(w * scale), weight=0)
 
 
 def cancel_callbacks(widget):
-    """Отменяет after именно удаляемого поддерева, включая анимации полей.
-
-    Tk удаляет Python-команды при destroy, но таймеры сам не отменяет.
-    Поэтому быстрая смена сделки иначе оставляет invalid command name tick.
-    """
     owners = {}
 
     def collect(node):
@@ -797,7 +762,6 @@ class TableRow(SafeDestroy, ctk.CTkFrame, FieldsMixin):
         self.badge.grid(row=0, column=0, sticky="w", padx=(2, 0))
         self.fields = {k: make_field(inner, k, compact=True) for k, *_ in SPEC}
         for col, k in enumerate(("fio", "dob", "passport", "issued", "snils"), start=1):
-            # Малая запрошенная ширина: фактическую ширину задаёт общая сетка.
             self.fields[k].configure(width=1)
             self.fields[k].entry.configure(width=1)
             self.fields[k].grid(row=0, column=col, sticky="ew", padx=(0, 8), pady=3)
@@ -813,7 +777,7 @@ class TableRow(SafeDestroy, ctk.CTkFrame, FieldsMixin):
         for f in self.fields.values():
             f.entry.bind("<FocusIn>", lambda e: self._on_focus())
             f.entry.bind("<FocusOut>", lambda e: self.after(40, self._focus))
-        # Геометрию строк не анимируем: фокус и цвета остаются плавными.
+
 
     def _on_focus(self):
         self.after(10, self._focus)
@@ -839,8 +803,6 @@ class TableRow(SafeDestroy, ctk.CTkFrame, FieldsMixin):
 
 
 class TableBoard(ctk.CTkFrame):
-    """Таблица участников: шапка + прокручиваемый список строк + кнопка «Добавить»."""
-
     def __init__(self, master, width, on_change=None, on_resize=None):
         super().__init__(master, fg_color=WHITE, corner_radius=14, border_width=2, border_color=BORDER_IDLE)
         self.cols = make_cols(width)
@@ -863,12 +825,12 @@ class TableBoard(ctk.CTkFrame):
         self.head_labels = {}
         heads = [(1, "Фамилия Имя Отчество", True, None), (2, "Дата рождения", True, None),
                  (3, "Серия и номер паспорта", True, None), (4, "Дата выдачи паспорта", True, None),
-                 (5, "СНИЛС", False, "Для запроса данных о дееспособности")]
+                 (5, "СНИЛС", False, "Без СНИЛС — пропуск дееспособности")]
         hf = F(13, "bold")
         for col, text, req, cap in heads:
-            if hf.measure(text + " *") > self.cols[col] - 6:      # не помещается в одну строку — переносим
+            if hf.measure(text + " *") > self.cols[col] - 6:
                 text = text.replace("номер паспорта", "номер\nпаспорта").replace("выдачи паспорта", "выдачи\nпаспорта")
-            # ячейка шапки имеет фиксированную ширину колонки: даже длинный текст не сдвинет соседей
+
             cell = ctk.CTkFrame(head, fg_color="transparent", width=max(1, self.cols[col]-8), height=56)
             cell.pack_propagate(False)
             cell.grid(row=0, column=col, sticky="nw", padx=(2, 0))
@@ -884,8 +846,7 @@ class TableBoard(ctk.CTkFrame):
                 ctk.CTkLabel(cell, text=cap, font=F(12), text_color=MUTED,
                              wraplength=self.cols[5] - 14, justify="left").pack(anchor="w")
 
-        # Собственный viewport без изменения внутренних размеров CTkScrollableFrame.
-        # Место под scrollbar зарезервировано всегда: колонки не прыгают.
+
         self.viewport = ctk.CTkFrame(pad, fg_color=WHITE, corner_radius=0, height=ROW_H+2)
         self.viewport.pack(fill="both", expand=True)
         self.viewport.pack_propagate(False)
@@ -906,7 +867,7 @@ class TableBoard(ctk.CTkFrame):
         self.add_btn = AddButton(pad, "+  Добавить гражданина", self.add_row, width=200, height=40)
         self.add_btn.pack(fill="x", pady=(6, 0))
 
-    # ── строки ──
+
     def add_row(self, values=None, focus=True, animated=True):
         row = TableRow(self.scroll, self, values, animated)
         row.pack(fill="x")
@@ -953,7 +914,6 @@ class TableBoard(ctk.CTkFrame):
         self.rows = []
 
     def load(self, people):
-        # Замена модели — одна операция, без промежуточных размеров и событий.
         self._loading = True
         try:
             self.clear()
@@ -972,7 +932,7 @@ class TableBoard(ctk.CTkFrame):
         if self.on_change:
             self.on_change()
 
-    # ── размер и прокрутка ──
+
     def _resize(self, animated=True):
         target = min(len(self.rows), MAX_VISIBLE) * ROW_H + 2
         self.h_cur = target
@@ -1008,9 +968,8 @@ class TableBoard(ctk.CTkFrame):
         if physical <= 1:
             return
         total = round(physical / self._get_widget_scaling())
-        # Минимальная ширина элементов не может превысить ширину колонки.
-        # Круглый CTkLabel запрашивает дополнительный отступ для двух цифр.
-        # Фиксированный запас не даёт номерам 10+ раздвигать первую колонку.
+
+
         ratios = [300, 146, 180, 164, 164]
         available = max(1, total - 48 - 26)
         cols = [48] + [round(available * r / sum(ratios)) for r in ratios] + [26]
@@ -1074,7 +1033,7 @@ class TableApp(Base):
         self.after(60, lambda: self.board.rows[0].fields["fio"].entry.focus_set())
         self.after(60, self.fade_in)
 
-    def add_person(self):          # для тестов/единообразия
+    def add_person(self):
         self.board.add_row()
 
     def _chg(self):
@@ -1082,4 +1041,3 @@ class TableApp(Base):
 
 
 VARIANTS = {"1": ChipsApp, "2": AccordionApp, "3": SidebarApp, "4": TableApp}
-

@@ -1,4 +1,3 @@
-"""Сборка рабочего приложения без дополнительных программ и пользовательских данных."""
 import argparse
 import os
 from pathlib import Path
@@ -27,8 +26,8 @@ subprocess.run([
     '--icon', str(root/'src/enot_app/app.ico'),
     '--add-data', str(root/'src/enot_app/app.ico')+';enot_app',
     '--add-data', str(root/'src/enot_app/models')+';enot_app/models',
-    '--add-data', str(root/'docs')+';docs', str(root/'src/main.py')
+    '--add-data', str(root/'licenses')+';licenses', str(root/'src/main.py')
 ], cwd=root, check=True)
 subprocess.run([str(args.iscc), '/DPackageDir='+str(out/'dist/EnotChecks'),
                 '/DReleaseDir='+str(out/'release'), str(root/'installer.iss')], check=True)
-print(out/'release/Setup_EnotChecks_0.1.3.exe')
+print(out/'release/Setup_EnotChecks_0.2.1.exe')

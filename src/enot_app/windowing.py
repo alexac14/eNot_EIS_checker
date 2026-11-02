@@ -1,12 +1,11 @@
-"""Размещение окон в физических координатах, включая второй монитор."""
 import customtkinter as ctk
 
 class CenteredToplevel(ctk.CTkToplevel):
     _deactivate_windows_window_header_manipulation = True
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
-        # До первого отображения WM: компоновка и позиция готовятся невидимо.
-        # Не используем withdraw, конфликтовавший с состоянием окна CTk.
+
+
         self.attributes('-alpha',0.0)
     def destroy(self):
         from enot_mockup_multi import cancel_callbacks
@@ -51,7 +50,7 @@ def center_child(window,parent,modal=False,on_show=None):
     def prepare():
         if not window.winfo_exists():return
         position()
-        # Обрабатываем Map/Configure при нулевой прозрачности, затем один показ.
+
         jobs.append(window.after(20,show))
     jobs.append(window.after_idle(prepare))
 

@@ -1,4 +1,3 @@
-"""Локальные атомарные файлы. Никакого автоматического удаления сделок."""
 import base64
 import datetime as dt
 import json
@@ -175,5 +174,4 @@ def new_run(people, signer, repeat=False):
     return dict(id=uuid.uuid4().hex, started=dt.datetime.now().isoformat(timespec='seconds'),
                 kind='Повторные' if repeat else 'Первичные', signer=signer, status='running',
                 people=[dict(p) for p in people], steps=[], f5_sent=False,
-                deferred=['Регистр населения: не реализован в этой сборке',
-                          'Дееспособность: не реализована в этой сборке'])
+                capacity_skipped=[], schema=2)

@@ -1,4 +1,3 @@
-"""Компоненты интерфейса сделок. Точка запуска рабочего приложения — main.py."""
 import datetime
 import sys
 import tkinter as tk
@@ -19,7 +18,6 @@ GREY_T = "#566275"
 DARK = "#18212F"
 
 
-# ───────────────────────── модель ─────────────────────────
 def plural(n):
     if 11 <= n % 100 <= 14:
         return f"{n} участников"
@@ -30,7 +28,7 @@ class Deal:
     def __init__(self, title, date="", people=None, history=None):
         self.title, self.date = title, date
         self.people = people or []
-        self.history = history or []       # [("Первичные"|"Повторные", "дд.мм.гггг чч:мм")]
+        self.history = history or []
 
     @property
     def primary_done(self):
@@ -53,7 +51,6 @@ class Deal:
         return (f"Первичные: {first or 'не проводились'}   ·   Повторные: {again or 'не проводились'}")
 
 
-# ───────────────────────── мелкие элементы ─────────────────────────
 def pill(parent, text, fg, bg):
     lbl = ctk.CTkLabel(parent, text=f"  {text}  ", height=22, corner_radius=11, fg_color=bg,
                        text_color=fg, font=F(12, "bold"))
@@ -75,8 +72,6 @@ class TextButton(SafeDestroy, ctk.CTkLabel):
 
 
 class Toast(SafeDestroy, ctk.CTkLabel):
-    """Всплывающее уведомление внизу окна: проявляется и исчезает."""
-
     def __init__(self, master, text):
         super().__init__(master, text="   " + text + "   ", height=38, corner_radius=12, fg_color=BG,
                          bg_color=ACCENT, text_color=BG, font=F(13, "bold"))
@@ -92,7 +87,6 @@ class Toast(SafeDestroy, ctk.CTkLabel):
 
 
 class NewDealDialog(CenteredToplevel):
-    # Обход Windows-обработчика заголовка CTk, скрывающего окно через withdraw.
     _deactivate_windows_window_header_manipulation = True
     def __init__(self, master, on_ok, with_people=None):
         super().__init__(master, fg_color=BG)
@@ -131,7 +125,6 @@ class NewDealDialog(CenteredToplevel):
         self.destroy()
 
 
-# ───────────────────────── шапка рабочей области ─────────────────────────
 class DealHeader(ctk.CTkFrame):
     def __init__(self, master, app):
         super().__init__(master, fg_color="transparent")
@@ -175,7 +168,6 @@ class DealHeader(ctk.CTkFrame):
         TextButton(self.act, "Удалить сделку", on_delete).pack(anchor="e", pady=(8, 0))
 
 
-# ───────────────────────── общая логика ─────────────────────────
 class DealsBase(Base):
     def init_state(self):
         self.deals = []
@@ -183,8 +175,6 @@ class DealsBase(Base):
         self.quick_people = [{}]
 
     def fit(self):
-        # Окно сделок сохраняет выбранный пользователем размер.
-        # Область участников получает оставшееся место и прокручивается.
         pass
 
     def build_work(self, parent, card_width):
@@ -243,7 +233,6 @@ class DealsBase(Base):
         self.refresh_nav()
 
     def make_deal(self):
-        """«Добавить как сделку»: превращает уже введённых людей в сделку."""
         NewDealDialog(self, lambda t, d: self._create(t, d, keep=True), with_people=True)
 
     def new_deal(self):
@@ -288,7 +277,6 @@ class DealsBase(Base):
         pass
 
 
-# ═════════════════════════ ВАРИАНТ 1: сделки слева ═════════════════════════
 class NavItem(SafeDestroy, ctk.CTkFrame):
     def __init__(self, master, title, sub, dot, on_select):
         super().__init__(master, fg_color=WHITE, corner_radius=10, height=56, border_width=2, border_color=WHITE)
@@ -366,8 +354,6 @@ class DealsSideApp(DealsBase):
         self.after(60, self.fade_in)
 
     def refresh_nav(self):
-        # Виджеты навигации переиспользуются: наведение не вызывает вспышек,
-        # отложенные callbacks не попадают в уже уничтоженную строку меню.
         if self.quick_item is None:
             self.quick_item = NavItem(self.quick_holder, "Проверка без сделки", "данные не сохраняются", ACCENT, self.enter_quick)
             self.quick_item.pack(fill="x")
@@ -390,7 +376,7 @@ class DealsSideApp(DealsBase):
                 self._deal_items[d] = it
             it.dot.configure(fg_color=fg)
             it.sub.configure(text=st, text_color=fg)
-        # Порядок обновляем без уничтожения пунктов.
+
         visible = [self._deal_items[d] for d in self.deals if not text or text in d.title.lower()]
         for it in visible:
             it.pack_forget()
@@ -400,10 +386,7 @@ class DealsSideApp(DealsBase):
             it.set_selected(d is self.current)
 
 
-# ═════════════════════════ ВАРИАНТ 2: стартовый экран ═════════════════════════
 class Tile(SafeDestroy, ctk.CTkFrame):
-    """Плитка/карточка с плавной подсветкой при наведении."""
-
     def __init__(self, master, height, on_click):
         super().__init__(master, fg_color=WHITE, corner_radius=14, border_width=2,
                          border_color=BORDER_IDLE, height=height)
@@ -453,7 +436,7 @@ class DealsHomeApp(DealsBase):
         self.show_home()
         self.after(60, self.fade_in)
 
-    # ── стартовый экран ──
+
     def build_home(self, parent):
         trow = ctk.CTkFrame(parent, fg_color="transparent")
         trow.pack(fill="x", pady=(0, 14))
@@ -520,7 +503,7 @@ class DealsHomeApp(DealsBase):
         go.pack(side="right", padx=(0, 2))
         t.finish(title, sub, hist, foot, go)
 
-    # ── переходы ──
+
     def show_home(self):
         self.save_current()
         self.work.pack_forget()
@@ -548,4 +531,3 @@ class DealsHomeApp(DealsBase):
 
 
 VARIANTS = {"1": DealsSideApp, "2": DealsHomeApp}
-

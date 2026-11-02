@@ -3,7 +3,7 @@ import threading
 
 
 class AutomationError(Exception):
-    """Сообщения этой ошибки не должны содержать персональные данные."""
+    pass
 
 
 class StopRequested(AutomationError):
@@ -25,8 +25,9 @@ class StopToken:
 
 
 class Runner:
-    def __init__(self, driver, persist, progress=lambda _: None):
+    def __init__(self, driver, persist, progress=lambda _: None, eis_driver=None):
         self.driver, self.persist, self.progress = driver, persist, progress
+        self.eis_driver = eis_driver
 
     def execute(self, run, stop):
         def step(person, code, operation):
@@ -45,34 +46,59 @@ class Runner:
             finally:
                 self.persist(run)
         try:
-            self.driver.prepare()
-            # Один проход по каждому разделу: не переключаем вкладки между людьми.
-            step(None, 'ЗАГС: открыть раздел', self.driver.open_zags)
-            for i, person in enumerate(run['people']):
-                stop.check()
-                step(i, 'ЗАГС: создать два запроса', lambda: self.driver.create_zags(person))
-                for kind in ('расторжение брака', 'заключение брака'):
-                    step(i, 'ЗАГС: подписать — '+kind,
-                         lambda k=kind: self.driver.sign_record(person, k, run['signer']))
-            step(None, 'Брачные договоры: открыть раздел', self.driver.open_contracts)
-            for i, person in enumerate(run['people']):
-                stop.check()
-                step(i, 'Брачные договоры: создать запрос', lambda: self.driver.create_contract(person))
-                step(i, 'Брачные договоры: подписать', lambda: self.driver.sign_record(person, None, run['signer']))
-            step(None, 'еНот: финальное нажатие F5', self.driver.finalize_dispatch)
-            run['f5_sent'] = True
+            stop.check()
+            if self.eis_driver is not None:
+                self.eis_driver.prepare()
+            if self.driver is not None:
+                self.driver.prepare()
+
+            if self.driver is not None:
+                step(None, 'ЗАГС: открыть раздел', self.driver.open_zags)
+                for i, person in enumerate(run['people']):
+                    stop.check()
+                    step(i, 'ЗАГС: создать два запроса', lambda: self.driver.create_zags(person))
+                    for kind in ('расторжение брака', 'заключение брака'):
+                        step(i, 'ЗАГС: подписать — '+kind,
+                             lambda k=kind: self.driver.sign_record(person, k, run['signer']))
+                step(None, 'Брачные договоры: открыть раздел', self.driver.open_contracts)
+                for i, person in enumerate(run['people']):
+                    stop.check()
+                    step(i, 'Брачные договоры: создать запрос', lambda: self.driver.create_contract(person))
+                    step(i, 'Брачные договоры: подписать', lambda: self.driver.sign_record(person, None, run['signer']))
+                step(None, 'еНот: финальное нажатие F5', self.driver.finalize_dispatch)
+                run['f5_sent'] = True
+            if self.eis_driver is not None:
+                if self.driver is not None:
+                    self.driver.guard()
+                step(None, 'ЕИС: открыть регистр населения', lambda: (self.eis_driver.activate(), self.eis_driver.open_population()))
+                for i, person in enumerate(run['people']):
+                    step(i, 'ЕИС: отправить запрос в регистр населения', lambda: self.eis_driver.create_population(person))
+                capacity_people = [(i,p) for i,p in enumerate(run['people']) if p.get('snils','').strip()]
+                if capacity_people:
+                    step(None, 'ЕИС: открыть запросы о дееспособности', self.eis_driver.open_capacity)
+                    for i, person in capacity_people:
+                        step(i, 'ЕИС: отправить запрос о дееспособности', lambda: self.eis_driver.create_capacity(person))
+                run['capacity_skipped'] = [i+1 for i,p in enumerate(run['people']) if not p.get('snils','').strip()]
+            stop.check()
             run['status'] = 'completed'
-            run['note'] = ('По всем участникам подтверждены запросы ЗАГС, затем брачных договоров. '
-                           'В активном окне еНот нажата F5. Получение данных сервером отдельно не проверялось. '
-                           'Ответы просмотрите в еНот. Этапы 3 и 4 не выполнялись.')
+            if self.eis_driver is not None and self.driver is not None:
+                run['note'] = 'Программа успешно отправила все предусмотренные запросы в клиенте ЕИС и еНоте.'
+            elif self.eis_driver is not None:
+                run['note'] = 'Программа успешно отправила все предусмотренные запросы в клиенте ЕИС.'
+            else:
+                run['note'] = 'Запросы еНота подписаны, финальное нажатие F5 выполнено.'
         except StopRequested as e:
             run['status'], run['note'] = 'stopped', str(e)
         except AutomationError as e:
             run['status'], run['note'] = 'failed', str(e)
         except Exception:
-            # Исключения библиотек могут содержать window_text с ФИО.
             run['status'], run['note'] = 'failed', 'Техническая ошибка. Последний шаг не подтверждён; проверьте еНот перед повтором.'
         finally:
+            if run['status'] != 'completed':
+                last = run['steps'][-1] if run['steps'] else None
+                if last:
+                    who = f"Участник {last['person']}: " if last.get('person') else ''
+                    run['note'] = who+last['code']+'.\n'+run['note']+'\nУже отправленные запросы не отменены. Перед повтором проверьте журналы ЕИС и еНота.'
             run['finished'] = dt.datetime.now().isoformat(timespec='seconds')
             self.persist(run)
         return run
